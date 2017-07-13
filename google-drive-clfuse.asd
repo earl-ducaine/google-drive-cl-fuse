@@ -5,6 +5,7 @@
   :depends-on (:alexandria :cffi)
   :components
   ((:file "package")
+   (:file "python-inter-op.lisp")
    (:file "os")
 ;;   (:file "gdfuses")
    ))

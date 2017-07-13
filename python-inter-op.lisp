@@ -25,7 +25,7 @@
 
 (defun prep-foreign-library-libpython ()
   (cffi:define-foreign-library libpython
-      (:darwin (:or "libpython2.7.1.dylib" "libpython2.7.dylib"))
+    (:darwin (:or "libpython2.7.1.dylib" "libpython2.7.dylib"))
     (:unix (:or "libpython2.7.so.1" "libpython2.7.so"))
     (t (:default "libpython2.7")))
   (cffi:use-foreign-library libpython))
@@ -55,17 +55,32 @@
 (cffi:defcfun ("Py_Initialize" py-initialize) :void)
 (cffi:defcfun ("PyImport_Import" py-import) :pointer (module :pointer))
 (cffi:defcfun ("pyunicode_as_data" pyunicode-as-data) :pointer (pystring :pointer))
+
+;; PyString
+(cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer (pystring :pointer))
 (cffi:defcfun ("PyString_FromString" py-string-from-string) :pointer (cstring :pointer))
+(cffi:defcfun ("pystring_check" py-string-check) :int (py-object :pointer))
+
+;; PyTuple
+(cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
+  (callable-object :int))
+
+(cffi:defcfun ("PyTuple_GetItem" py-tuple-get-item) :pointer
+  (tuple-object :pointer)
+  (index :int))
+
+(cffi:defcfun ("PyTuple_SetItem" py-tuple-set-item) :int
+  (tuple-object :pointer)
+  (index :int)
+  (object :pointer))
+
+(cffi:defcfun ("PyTuple_Size" py-tuple-size) :int
+  (tuple :pointer))
 
 ;;; PyObject* PyObject_GetAttrString (PyObject *o, char *attr_name)
 (cffi:defcfun ("PyObject_GetAttrString" py-object-get-attrstring) :pointer
   (o :pointer)
   (attr-name :pointer))
-
-
-;; char* PyString_AsString (PyObject *string)
-(cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer
-  (string :pointer))
 
 
 (cffi:defcfun ("Py_DECREF" py_decref) :void (object py-object))
@@ -76,13 +91,6 @@
   (callable-object :pointer)
   (args :pointer))
 
-;; PyObject* PyTuple_New (int len)
-(cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
-  (callable-object :int))
-
-;; PyObject* PyTuple_New (int len)
-(cffi:defcfun ("PyTuple_Size" py-tuple-size) :int
-  (tuple :pointer))
 
 
 (py-initialize)
@@ -95,54 +103,70 @@
 
 
 
-(defparameter buff (cffi:foreign-alloc :char :count 1024))
-(defparameter string-buff
-  (cffi:lisp-string-to-foreign "os" buff 1024))
-(defparameter import-module-string (py-string-from-string string-buff))
+(defparameter buff1 (cffi:foreign-alloc :char :count 1024))
+(defparameter buff2 (cffi:foreign-alloc :char :count 1024))
+(defparameter *string-buff*
+  (cffi:lisp-string-to-foreign "os" buff1 1024))
+(defparameter import-module-string (py-string-from-string *string-buff*))
 
 (defun import-os ()
   ;;(let ((module (py-string-from-string import-module-string)))
   (setf module (py-import import-module-string))
   (py-decref module))
 
-(defparameter *foreign-function-name* nil)
-(defparameter *f* nil)
 (defparameter *args* nil)
+(defparameter *foreign-module-name* nil)
+(defparameter *foreign-function-name* nil)
+(defparameter *py-module-string* nil)
+(defparameter *m* nil)
+(defparameter *f* nil)
+(defparameter *py-foreign-function-name* nil)
+
+
+(defun convert-strings ()
+  (cffi:foreign-string-to-lisp
+   (pyunicode-as-data (py-string-from-string
+		       (cffi:lisp-string-to-foreign "os" buff1 1024)))))
+
+;;(cffi:foreign-string-to-lisp )
+
+;; "/home/rett/dev/google-drive-fuse-drivers"
+(defun convert-lisp-object-to-python-object (object)
+  (ctypecase object
+    (string (cffi:with-foreign-string (foreign-string object)
+	      (py-string-from-string foreign-string)))	      
+    (symbol  nil)))
+
+;; Generate a python args object from a list of values
+(defun generate-python-args (args)
+  (let ((result (py-tuple-new (length args))))
+    (dolist (arg args result)
+      (py-tuple-set-item result 0 (convert-lisp-object-to-python-object arg)))))
+
+(defun convert-python-object-to-lisp-object (python-object)
+  (cond
+    ((/= (py-string-check python-object) 0)
+     (get-py-string python-object))
+    (t nil)))
+
+(defun generate-lisp-list-from-python-tuple (tuple)
+  (let (lisp-list)
+    (dotimes (i (py-tuple-size tuple) lisp-list)
+      (push (convert-python-object-to-lisp-object
+	     (py-tuple-get-item tuple i)) lisp-list))))
 
 (defun call-function-from-module (module-name function-name args)
   (cffi:with-foreign-strings ((foreign-module-name module-name)
 			      (foreign-function-name function-name))
-    (let* ((py-module-string (py-string-from-string string-buff))
+    (let* ((py-module-string (py-string-from-string foreign-module-name))
 	   (m (py-import py-module-string))
-	   (f (py-object-get-attrstring m foreign-function-name))
-	   (args (py-tuple-new 0)))
-      (setf *foreign-function-name* foreign-function-name)
-      (setf *f* f)
-      (setf *args* args))))
-	   
-      ;; 	    (py-object-call-object f args)
+	   (f (py-object-get-attrstring m foreign-function-name)))
+      (cffi:foreign-string-to-lisp
+       (py-string-as-string
+	(py-object-call-object f (generate-python-args args)))))))
 
-
-    
-      ;; results)))
-      ;; 	   (cstring (py-string-as-string results)))
-      ;; 	   cstring)))
-      ;; (cffi:foreign-string-to-lisp cstring))))
-
-
-
-
-;;      (py-decref m))))
-      ;; (list m f args))))
-
-
-      
-      ;; 
-
-;; PyObject* PyString_FromString (const char *v)
-;; (cffi:defcfun ("PyString_FromString" py-string-from-string) py-object
-;;   (in-string :pointer :char))
-
+(defun get-py-string (py-string)
+  (cffi:foreign-string-to-lisp (py-string-as-string py-string)))
 
 (defun decrease-reference-counter (python-object)
   Py_DECREF(pName);
@@ -152,21 +176,3 @@
 (defun get-python-string (lisp-string)
   (cffi:with-foreign-string (foo lisp-string)
     (py-string-from-string foo)))
-
-
-(defparameter python-string (get-python-string "this is a string"))
-
-
-
-(defun run-os-cwd ()
-  (call-function-from-module "os" "cwd" nil))
-
-;; (with-foreign-string (url "http://www.cliki.net/CFFI")
-
-
-
-;;; pName = PyString_FromString(argv[1]);
-
-
-
-;;; (cffi:use-foreign-library libpython)

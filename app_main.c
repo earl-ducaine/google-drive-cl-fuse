@@ -21,3 +21,7 @@ void py_decref(PyObject* o) {
 const char* pyunicode_as_data(PyObject* o) {
   return PyUnicode_AS_DATA(o);
 }
+
+int pystring_check(PyObject* o) {
+  return PyString_Check(o);
+}
