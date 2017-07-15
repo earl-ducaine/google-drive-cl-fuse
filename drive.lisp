@@ -70,7 +70,7 @@
     (error "Too many filename conflicts"))
   (let* (md5 md5_result hexa h offset)))
 
-(defun disambiguate-filename (filename full-file-extension remote-idfilename-table)
+(defun disambiguate-filename (filename full-file-extension remote-id filename-table)
   (flet ((find-first-unique-filename (filename counter)
 	   (let ((new-candidate 
 		  (let ((fingerprint (get-remote-id-fingerprint counter remote-id)))
@@ -108,118 +108,74 @@
 	    trash-directory-base-path))))
 
 (defun is-lost-and-found-root (path trashed config)
-  if trashed || not config.Config.lost-and-found then false
-  else path = lost-and-found-directory
+  (if (or trashed (not (lost-and-found (Config config))))
+      nil
+      lost-and-found-directory))
 
-let is-lost-and-found path trashed config =
-  if trashed || not config.Config.lost-and-found then false
-  else ExtString.String.starts-with path lost-and-found-directory
+(defun is-lost-and-found (path trashed config)
+  (if (or trashed (not (lost-and-found (Config config))))
+      (ExtString-String:starts-with path lost-and-found-directory)))
 
-let is-shared-with-me-root path trashed config =
-  if trashed || not config.Config.shared-with-me then false
-  else path = shared-with-me-directory
+(defun is-shared-with-me-root (trashed config)
+  (if (or trashed (not (shared-with-me (Config config))))
+      nil
+      shared-with-me-directory))
 
-let is-shared-with-me path trashed config =
-  if trashed || not config.Config.shared-with-me then false
-  else ExtString.String.starts-with path shared-with-me-directory
+(defun is-shared-with-me (trashed config)
+  (if (or trashed (not (shared-with-me (Config config))))
+      nil
+      (extstring-string:starts-with path shared-with-me-directory)))
 
-let get-path-in-cache path =
-  if path = root-directory then
-    (root-directory, false)
-  else if path = trash-directory then
-    (root-directory, true)
-  else if is-in-trash-directory path then
-    let path-in-cache = Str.string-after path trash-directory-name-length in
-    (path-in-cache, true)
-  else
-    (path, false)
+(defun get-path-in-cache (path)
+  (cond
+    ((string= path root-directory)
+     (values root-directory false))
+    ((string= path trash-directory)
+     (values root-directory true))
+    ((string= is-in-trash-directory path)
+     (Str:string-after path trash-directory-name-length))
+    (t
+     (values path false))))
 
-let handle-default-exceptions =
-  function
-  | GapiService.ServiceError (-, e) ->
-    let message =
-      e
-      |> GapiError.RequestError.to-data-model
-      |> GapiJson.data-model-to-json
-      |> Yojson.Safe.to-string in
-    Utils.log-with-header "Service error: %s.\n%!" message;
-    begin match e.GapiError.RequestError.errors with
-      | [] -> Utils.raise-m IO-error
-      | e :: - ->
-        begin match e.GapiError.SingleError.reason with
-          | "userRateLimitExceeded"
-          | "rateLimitExceeded"
-          | "backendError"
-          | "downloadQuotaExceeded" -> Utils.raise-m Temporary-error
-          | "insufficientFilePermissions" -> Utils.raise-m Permission-denied
-          | - -> Utils.raise-m IO-error
-        end
-    end
-    | GapiRequest.PermissionDenied - ->
-      Utils.log-with-header "Server error: Permission denied.\n%!";
-      Utils.raise-m Permission-denied
-    | GapiRequest.RequestTimeout - ->
-      Utils.log-with-header "Server error: Request Timeout.\n%!";
-      Utils.raise-m Temporary-error
-    | GapiRequest.PreconditionFailed -
-    | GapiRequest.Conflict - ->
-      Utils.log-with-header "Server error: Conflict.\n%!";
-      Utils.raise-m Temporary-error
-    | GapiRequest.Forbidden - ->
-      Utils.log-with-header "Server error: Forbidden.\n%!";
-      Utils.raise-m IO-error
-    | e -> Utils.raise-m e
+;; Resource cache 
+(defun get-filename (name is-document get-document-format)
+  (let* ((context (Context:get-ctx))
+	 (config  (Context:config-lens context))
+	 (clean-name  (clean-filename name))
+	 (document-format (if is-document
+			      (get-document-format config)
+			      "")))
+    (if (and is-document
+	     (and (docs-file-extension (Config config))
+		  (not (string= document-format ""))))
+	(str  clean-name  "."  document-format)
+	clean-name)))
 
-(* with-try with a default exception handler *)
-let try-with-default f s =
-  Utils.try-with-m f handle-default-exceptions s
+(defun build-resource-tables (parent-path trashed)
+  (let* ((context (context:get-ctx))
+	 (cache  (cache (context context)))
+	 (resources (cache-resource:select-resources-with-parent-path
+		     cache
+		     parent-path
+		     trashed))
+	 (filename-table  (hashtbl:create (hashtable-initial-size utils)))
+	 (remote-id-table hashtbl:create (list:length resources))
+	 (dolist (resource resources)
 
-(* Resource cache *)
-let get-filename name is-document get-document-format =
-  let context = Context.get-ctx () in
-  let config = context |. Context.config-lens in
-  let clean-name = clean-filename name in
-  let document-format =
-    if is-document then get-document-format config
-    else "" in
-  if is-document &&
-      config.Config.docs-file-extension &&
-      document-format <> "" then
-    clean-name ^ "." ^ document-format
-  else
-    clean-name
+       (let* ((name (option:get (name (resource (cache resource)))))
+	      (clean-name (get-filename name
+					(is-document (resource cache))))
+	      (my-lambda (lambda (config) (get-format (cache-resource:get-format resource config))))
+	      (filename  (filename:basename (resource (cache (path resource))))))
+	 (unless (not (string= clean-name filename))
+	   (setf name-counter (hashtbl:find filename-table clean-name)))
+         (hashtbl:replace filename-table clean-name name-counter)
 
-let build-resource-tables parent-path trashed =
-  let context = Context.get-ctx () in
-  let cache = context.Context.cache in
-  let resources =
-    Cache.Resource.select-resources-with-parent-path
-      cache parent-path trashed in
-  let filename-table = Hashtbl.create Utils.hashtable-initial-size in
-  let remote-id-table = Hashtbl.create (List.length resources) in
-  List.iter
-    (fun resource ->
-       let name = Option.get resource.Cache.Resource.name in
-       let clean-name =
-         get-filename
-           name
-           (Cache.Resource.is-document resource)
-           (fun config -> Cache.Resource.get-format resource config)
-       in
-       let filename = Filename.basename resource.Cache.Resource.path in
-       if clean-name <> filename then begin
-         let name-counter =
-           try
-             Hashtbl.find filename-table clean-name
-           with Not-found -> 0
-         in
-         Hashtbl.replace filename-table clean-name name-counter;
-       end;
-       Hashtbl.add filename-table filename 0;
-       Hashtbl.add remote-id-table
-         (Option.get resource.Cache.Resource.remote-id) resource)
+       hashtbl.add filename-table filename 0;
+       hashtbl.add remote-id-table
+         (option.get resource.cache.resource.remote-id) resource)
     resources;
-  (filename-table, remote-id-table)
+  (filename-table, remote-id-table)))))
 
 let create-resource path =
   let parent-path = Filename.dirname path in
@@ -249,50 +205,39 @@ let create-resource path =
     last-update = Unix.gettimeofday ();
   }
 
-let create-root-resource trashed =
-  let resource = create-resource root-directory in
-  { resource with
-        Cache.Resource.remote-id = Some root-folder-id;
-        mime-type = Some folder-mime-type;
-        size = Some 0L;
-        parent-path = "";
-        trashed = Some trashed;
-  }
+(defun create-root-resource ()
+  (let ((resource (create-resource root-directory)))
+    (setf (remote-id (resource (cache resource))) (some root-folder-id))
+        (setf (mime-type resource) (some folder-mime-type))
+        (setf (size resource) (some 0l))
+        (setf parent-path  "")
+        (setf trashed  (some trashed))))
 
-let create-well-known-resource path =
-  let resource = create-resource path in
-  { resource with
-        Cache.Resource.remote-id = Some "";
-        mime-type = Some folder-mime-type;
-        size = Some 0L;
-        parent-path = "";
-        trashed = Some false;
-  }
+(defun create-well-known-resource (path)
+  (let ((resource  (create-resource path)))
+  (Cache-Resource:remote-id resource "")
+        (setf (mime-type resource)  folder-mime-type)
+        (setf (size  resource 0L))
+        (setf (parent-path resource) "")
+        (setf (trashed  resource) nil)))
 
-let get-unique-filename
-    name
-    full-file-extension
-    remote-id
-    is-document
-    get-document-format
-    filename-table =
-  let complete-name = get-filename name is-document get-document-format in
-  disambiguate-filename
-    complete-name
-    full-file-extension
-    remote-id
-    filename-table
+(defun get-unique-filename (name full-file-extension remote-id is-document
+			    get-document-format)
+  (let ((complete-name (get-filename name is-document get-document-format)))
+    (disambiguate-filename
+     complete-name
+     full-file-extension
+     remote-id)))
 
-let get-unique-filename-from-resource resource name filename-table =
-  get-unique-filename
-    name
-    (Option.default "" resource.Cache.Resource.full-file-extension)
-    (Option.default "" resource.Cache.Resource.remote-id)
-    (Cache.Resource.is-document resource)
-    (fun config -> Cache.Resource.get-format resource config)
-    filename-table
+(defun get-unique-filename-from-resource (resource name filename-table)
+  (get-unique-filename name
+		       (or resource.Cache.Resource.full-file-extension "")
+		       (or resource.Cache.Resource.remote-id "")
+		       (Cache.Resource.is-document resource)
+		       (funcall (Cache-Resource:get-format resource config) config)
+		       filename-table))
 
-let get-unique-filename-from-file file filename-table =
+(defun get-unique-filename-from-file (file filename-table)
   get-unique-filename
     file.File.name
     file.File.fullFileExtension
@@ -302,7 +247,7 @@ let get-unique-filename-from-file file filename-table =
       Cache.Resource.get-format-from-mime-type file.File.mimeType config)
     filename-table
 
-let recompute-path resource name =
+(defun recompute-path (resource name)
   (* TODO: make an optimized version of build-resource-tables that
    * doesn't create resource table (useful for large directories). *)
   let (filename-table, -) =
@@ -311,9 +256,9 @@ let recompute-path resource name =
       (Option.default false resource.Cache.Resource.trashed) in
   let filename =
     get-unique-filename-from-resource resource name filename-table in
-  Filename.concat resource.Cache.Resource.parent-path filename
+  Filename.concat resource.Cache.Resource.parent-path filename)
 
-let update-resource-from-file ?state resource file =
+(defun update-resource-from-file (?state resource file)
   let path =
     match resource.Cache.Resource.name with
         Some cached-name ->
@@ -349,9 +294,9 @@ let update-resource-from-file ?state resource file =
         path;
         parent-path;
         state = Option.default resource.Cache.Resource.state state;
-  }
+  })
 
-let insert-resource-into-cache ?state cache resource file =
+(defun insert-resource-into-cache (?state cache resource file)
   let resource = update-resource-from-file ?state resource file in
   Utils.log-with-header "BEGIN: Saving resource to db (remote id=%s)\n%!"
     file.File.id;
@@ -360,25 +305,25 @@ let insert-resource-into-cache ?state cache resource file =
     file.File.id
     inserted.Cache.Resource.id
     (Cache.Resource.State.to-string inserted.Cache.Resource.state);
-  inserted
+  inserted)
 
-let update-cached-resource cache resource =
+(defun update-cached-resource (cache resource)
   Utils.log-with-header
     "BEGIN: Updating resource in db (id=%Ld, state=%s)\n%!"
     resource.Cache.Resource.id
     (Cache.Resource.State.to-string resource.Cache.Resource.state);
   Cache.Resource.update-resource cache resource;
   Utils.log-with-header "END: Updating resource in db (id=%Ld)\n%!"
-    resource.Cache.Resource.id
+    resource.Cache.Resource.id)
 
-let update-cached-resource-state cache state id =
+(defun update-cached-resource-state (cache state id)
   Utils.log-with-header
     "BEGIN: Updating resource state in db (id=%Ld, state=%s)\n%!"
     id (Cache.Resource.State.to-string state);
   Cache.Resource.update-resource-state cache state id;
-  Utils.log-with-header "END: Updating resource state in db (id=%Ld)\n%!" id
+  Utils.log-with-header "END: Updating resource state in db (id=%Ld)\n%!" id)
 
-let lookup-resource path trashed =
+(defun lookup-resource (path trashed)
   Utils.log-with-header "BEGIN: Loading resource %s (trashed=%b) from db\n%!"
     path trashed;
   let cache = Context.get-cache () in
@@ -397,9 +342,9 @@ let lookup-resource path trashed =
       "END: Loading resource %s (trashed=%b) from db: Found (id=%Ld, state=%s)\n%!"
       path trashed id state;
   end end;
-  resource
+  resource)
 
-let get-well-known-resource path trashed =
+(defun get-well-known-resource (path trashed)
   let context = Context.get-ctx () in
   let cache = context.Context.cache in
   let config = context |. Context.config-lens in
@@ -424,9 +369,9 @@ let get-well-known-resource path trashed =
       "END: Saving %s resource to db (id=%Ld)\n%!"
       label well-known-resource.Cache.Resource.id;
     inserted
-  | Some resource -> resource
+  | Some resource -> resource)
 
-let update-cache-size delta metadata cache =
+(defun update-cache-size (delta metadata cache)
   Utils.log-with-header "BEGIN: Updating cache size (delta=%Ld) in db\n%!"
     delta;
   if delta = 0L then begin
@@ -443,9 +388,9 @@ let update-cache-size delta metadata cache =
       context |> Context.metadata ^= Some metadata
     in
     Context.update-ctx update-metadata
-  end
+  end)
 
-let shrink-cache ?(file-size = 0L) () =
+(defun shrink-cache (?(file-size = 0L) ())
   let context = Context.get-ctx () in
   let metadata = context |. Context.metadata-lens in
   let config = context |. Context.config-lens in
@@ -483,16 +428,16 @@ let shrink-cache ?(file-size = 0L) () =
          Cache.delete-files-from-cache cache resources-to-free |> ignore
        end else begin
           update-cache-size file-size metadata cache;
-       end)
+       end))
 
-let delete-memory-buffers memory-buffers resource =
+(defun delete-memory-buffers (memory-buffers resource)
   Option.may
     (fun remote-id ->
        Buffering.MemoryBuffers.remove-buffers remote-id memory-buffers
     )
-    resource.Cache.Resource.remote-id
+    resource.Cache.Resource.remote-id)
 
-let delete-from-context context resource =
+(defun delete-from-context (context resource)
   let memory-buffers = context.Context.memory-buffers in
   delete-memory-buffers memory-buffers resource;
   Option.may
@@ -500,9 +445,9 @@ let delete-from-context context resource =
        Context.with-ctx-lock
          (fun () -> Hashtbl.remove context.Context.file-locks remote-id)
     )
-    resource.Cache.Resource.remote-id
+    resource.Cache.Resource.remote-id)
 
-let delete-cached-resource resource =
+(defun delete-cached-resource (resource)
   let context = Context.get-ctx () in
   let cache = context.Context.cache in
   Cache.Resource.delete-resource cache resource;
@@ -513,9 +458,9 @@ let delete-cached-resource resource =
        update-cache-size (Int64.neg total-size) metadata cache
     )
     context.Context.metadata;
-  delete-from-context context resource
+  delete-from-context context resource)
 
-let delete-cached-resources metadata cache resources =
+(defun delete-cached-resources (metadata cache resources)
   Cache.Resource.delete-resources cache resources;
   let total-size =
     Cache.delete-files-from-cache cache resources in
@@ -523,9 +468,9 @@ let delete-cached-resources metadata cache resources =
   let context = Context.get-ctx () in
   List.iter
     (delete-from-context context)
-    resources
+    resources)
 
-let update-cache-size-for-documents cache resource content-path op =
+(defun update-cache-size-for-documents (cache resource content-path op)
   let context = Context.get-ctx () in
   Utils.with-lock context.Context.metadata-lock
     (fun () ->
@@ -539,10 +484,9 @@ let update-cache-size-for-documents cache resource content-path op =
           update-cache-size delta metadata cache
         with e -> Utils.log-exception e
       end)
-(* END Resource cache *)
+(* END Resource cache *))
 
-(* Metadata *)
-let get-metadata () =
+(defun let (get-metadata ())
   let request-new-start-page-token =
     let std-params =
       { GapiService.StandardParameters.default with
@@ -552,16 +496,16 @@ let get-metadata () =
     ChangesResource.getStartPageToken
       ~std-params >>= fun startPageToken ->
     SessionM.return startPageToken.StartPageToken.startPageToken
-  in
+  in)
 
-  let get-start-page-token start-page-token-db =
+(defun get-start-page-token (start-page-token-db)
     if start-page-token-db = "" then
       request-new-start-page-token
     else
       SessionM.return start-page-token-db
-  in
+  in)
 
-  let request-metadata start-page-token-db cache-size =
+(defun request-metadata (start-page-token-db cache-size)
     let std-params =
       { GapiService.StandardParameters.default with
             GapiService.StandardParameters.fields =
@@ -579,13 +523,13 @@ let get-metadata () =
       last-update = Unix.gettimeofday ();
     } in
     SessionM.return metadata
-  in
+  in)
 
-  let context = Context.get-ctx () in
+(defun context (= Context.get-ctx () )
   let cache = context.Context.cache in
-  let config = context |. Context.config-lens in
+  let config = context |. Context.config-lens in)
 
-  let update-resource-cache new-metadata old-metadata =
+(defun update-resource-cache (new-metadata old-metadata)
     let get-all-changes =
       let rec loop pageToken accu =
         let std-params =
@@ -605,7 +549,7 @@ let get-metadata () =
           loop change-list.ChangeList.nextPageToken changes
       in
       loop new-metadata.Cache.Metadata.start-page-token []
-    in
+    in)
 
     let request-changes =
       Utils.log-with-header "BEGIN: Getting changes from server\n%!";
@@ -839,7 +783,7 @@ let get-metadata () =
            end
     )
 
-let statfs () =
+(defun statfs (())
   let metadata = get-metadata () in
   let limit =
     if metadata.Cache.Metadata.storage-quota-limit = 0L then Int64.max-int
@@ -861,10 +805,9 @@ let statfs () =
     f-fsid = 0L;
     f-flag = 0L;
   }
-(* END Metadata *)
+(* END Metadata *))
 
-(* Resources *)
-let get-file-from-server parent-folder-id name trashed =
+(defun let (get-file-from-server parent-folder-id name trashed)
   Utils.log-with-header
     "BEGIN: Getting resource %s (in folder %s) from server\n%!"
     name parent-folder-id;
@@ -883,9 +826,9 @@ let get-file-from-server parent-folder-id name trashed =
     SessionM.return None
   else
     let file = files |. GapiLens.head in
-    SessionM.return (Some file)
+    SessionM.return (Some file))
 
-let get-resource-from-server parent-folder-id name new-resource trashed cache =
+(defun get-resource-from-server (parent-folder-id name new-resource trashed cache)
   get-file-from-server parent-folder-id name trashed >>= fun file ->
   match file with
       None ->
@@ -902,9 +845,9 @@ let get-resource-from-server parent-folder-id name new-resource trashed cache =
         SessionM.return inserted
     | Some entry ->
         let inserted = insert-resource-into-cache cache new-resource entry in
-        SessionM.return inserted
+        SessionM.return inserted)
 
-let check-resource-in-cache cache path trashed =
+(defun check-resource-in-cache (cache path trashed)
   let metadata-last-update =
     Context.get-ctx () |. Context.metadata-last-update-lens in
   match lookup-resource path trashed with
@@ -914,9 +857,9 @@ let check-resource-in-cache cache path trashed =
           if Cache.Resource.is-folder resource then
             resource.Cache.Resource.state = Cache.Resource.State.Synchronized
           else true
-        else false
+        else false)
 
-let rec get-folder-id path trashed =
+(defun rec (get-folder-id path trashed)
   if path = root-directory then
     SessionM.return root-folder-id
   else
@@ -927,7 +870,7 @@ let rec get-folder-id path trashed =
 and get-resource path trashed =
   let config = Context.get-ctx () |. Context.config-lens in
   let metadata-last-update =
-    get-metadata () |. Cache.Metadata.last-update in
+    get-metadata () |. Cache.Metadata.last-update in)
 
   let get-new-resource cache =
     let parent-path = Filename.dirname path in
@@ -1044,9 +987,9 @@ let check-md5-checksum resource cache =
         path content-path md5-checksum;
       false
     end;
-  end else false
+  end else false)
 
-let with-retry f resource =
+(defun with-retry (f resource)
   let rec loop res n =
     Utils.try-with-m
       (f res)
@@ -1080,12 +1023,12 @@ let with-retry f resource =
              end
          | e -> Utils.raise-m e)
   in
-    loop resource 0
+    loop resource 0)
 
-let is-desktop-format resource config =
-  Cache.Resource.get-format resource config = "desktop"
+(defun is-desktop-format (resource config)
+  Cache.Resource.get-format resource config = "desktop")
 
-let create-desktop-entry resource content-path config =
+(defun create-desktop-entry (resource content-path config)
   Utils.with-out-channel
     ~mode:[Open-creat; Open-trunc; Open-wronly] content-path
     (fun out-ch ->
@@ -1101,9 +1044,9 @@ let create-desktop-entry resource content-path config =
          URL=%s\n%s"
         (Option.default "" resource.Cache.Resource.name)
         (Option.default "" resource.Cache.Resource.web-view-link)
-        icon-entry)
+        icon-entry))
 
-let download-resource resource =
+(defun download-resource (resource)
   let context = Context.get-ctx () in
   let cache = context.Context.cache in
   let config = context |. Context.config-lens in
@@ -1237,9 +1180,9 @@ let download-resource resource =
     end
   in
   check-state 0 >>= fun () ->
-  SessionM.return content-path
+  SessionM.return content-path)
 
-let stream-resource offset buffer resource =
+(defun stream-resource (offset buffer resource)
   let length = Bigarray.Array1.dim buffer in
   let finish = Int64.add offset (Int64.of-int (length - 1)) in
   Utils.log-with-header
@@ -1262,9 +1205,9 @@ let stream-resource offset buffer resource =
   Utils.log-with-header
     "END: Stream resource (id=%Ld, offset=%Ld, finish=%Ld, length=%d)\n%!"
     resource.Cache.Resource.id offset finish length;
-  SessionM.return ()
+  SessionM.return ())
 
-let stream-resource-to-memory-buffer offset buffer resource =
+(defun stream-resource-to-memory-buffer (offset buffer resource)
   let context = Context.get-ctx () in
   let memory-buffers = context.Context.memory-buffers in
   let remote-id = resource.Cache.Resource.remote-id |> Option.get in
@@ -1273,9 +1216,9 @@ let stream-resource-to-memory-buffer offset buffer resource =
     (fun start-pos block-buffer ->
        stream-resource start-pos block-buffer resource)
     ~dest-arr:buffer memory-buffers >>= fun () ->
-  SessionM.return ()
+  SessionM.return ())
 
-let stream-resource-to-read-ahead-buffers offset resource =
+(defun stream-resource-to-read-ahead-buffers (offset resource)
   let context = Context.get-ctx () in
   let memory-buffers = context.Context.memory-buffers in
   let remote-id = resource.Cache.Resource.remote-id |> Option.get in
@@ -1287,23 +1230,22 @@ let stream-resource-to-read-ahead-buffers offset resource =
     memory-buffers >>= fun ms ->
   List.map
     (fun m -> with-retry (fun - -> m) resource)
-    ms |> SessionM.return
+    ms |> SessionM.return)
 
-let is-filesystem-read-only () =
-  Context.get-ctx () |. Context.config-lens |. Config.read-only
+(defun is-filesystem-read-only (())
+  Context.get-ctx () |. Context.config-lens |. Config.read-only)
 
-let is-file-read-only resource =
+(defun is-file-read-only (resource)
   let config = Context.get-ctx () |. Context.config-lens in
   not (Option.default true resource.Cache.Resource.can-edit) ||
   Cache.Resource.is-document resource ||
   config.Config.large-file-read-only &&
-    Cache.Resource.is-large-file config resource
+    Cache.Resource.is-large-file config resource)
 
-(* stat *)
-let get-attr path =
+(defun let (get-attr path)
   let context = Context.get-ctx () in
   let config = context |. Context.config-lens in
-  let (path-in-cache, trashed) = get-path-in-cache path in
+  let (path-in-cache, trashed) = get-path-in-cache path in)
 
   let request-resource =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -1419,11 +1361,9 @@ let get-attr path =
           st-mtime;
           st-ctime;
     }
-  end
-(* END stat *)
+  end)
 
-(* readdir *)
-let read-dir path =
+(defun read-dir (path)
   let get-all-files q =
     let rec loop ?pageToken accu =
       FilesResource.list
@@ -1437,7 +1377,7 @@ let read-dir path =
         loop ~pageToken:file-list.FileList.nextPageToken files
     in
       loop []
-  in
+  in)
 
   let (path-in-cache, trashed) = get-path-in-cache path in
   let context = Context.get-ctx () in
@@ -1572,43 +1512,34 @@ let read-dir path =
   if path = root-directory && not trashed &&
      config.Config.lost-and-found then
     (Filename.basename lost-and-found-directory) :: filenames
-  else filenames
-(* END readdir *)
+  else filenames)
 
-(* fopen *)
-let fopen path flags =
-  let (path-in-cache, trashed) = get-path-in-cache path in
-  let is-read-only-request = List.mem Unix.O-RDONLY flags in
 
-  let check-editable =
-    get-resource path-in-cache trashed >>= fun resource ->
-    if not is-read-only-request && is-file-read-only resource then
-      Utils.raise-m Permission-denied
-    else
-      SessionM.return ()
-  in
-
-  if not is-read-only-request && is-filesystem-read-only () then
-    raise Permission-denied
+(defun fopen (path flags)
+  (multiple-value-bind (path-in-cache trashed) (get-path-in-cache path)
+    (let* ((is-read-only-request (list:mem unix.o-rdonly flags))
+	   (check-editable
+	    (progn
+	      (get-resource path-in-cache trashed)))
+      (when (and (not is-read-only-request) (is-file-read-only resource))
+	raise permission-denied)
+      (when (and (not is-read-only-request) is-filesystem-read-only)
+	  (raise permission-denied)
   else begin
     do-request check-editable |> ignore
   end;
-  None
-(* END fopen *)
+  None)
 
-(* opendir *)
-let opendir path flags =
-  let (path-in-cache, trashed) = get-path-in-cache path in
-  do-request (get-resource path-in-cache trashed) |> ignore;
-  None
-(* END opendir *)
+(defun opendir (path flags)
+  (multiple-value-bind (path-in-cache trashed)
+      (get-path-in-cache path)
+    (do-request :get-resource path-in-cache trashed)))
 
-(* Update operations *)
-let default-save-resource-to-db cache resource file =
+(defun default-save-resource-to-db (cache resource file)
   let updated-resource = update-resource-from-file resource file in
-  update-cached-resource cache updated-resource
+  update-cached-resource cache updated-resource)
 
-let update-remote-resource path
+(defun update-remote-resource (pa)
       ?update-file-in-cache
       ?(save-to-db = default-save-resource-to-db)
       ?(purge-cache = fun cache resource -> ())
@@ -1643,10 +1574,10 @@ let update-remote-resource path
     raise Permission-denied
   else
     update-file
-(* Update operations *)
+(* Update operations *))
 
-(* utime *)
-let utime path atime mtime =
+
+(defun utime (path atime mtime)
   let update =
     let touch resource =
       let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -1671,12 +1602,11 @@ let utime path atime mtime =
       touch
   in
   do-request update |> ignore
-(* END utime *)
+(* END utime *))
 
-(* read *)
-let read path buf offset file-descr =
+(defun read (path buf offset file-descr)
   let (path-in-cache, trashed) = get-path-in-cache path in
-  let config = Context.get-ctx () |. Context.config-lens in
+  let config = Context.get-ctx () |. Context.config-lens in)
 
   let request-resource =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -1722,9 +1652,8 @@ let read path buf offset file-descr =
     Bigarray.Array1.dim buf
 (* END read *)
 
-(* write *)
-let write path buf offset file-descr =
-  let (path-in-cache, trashed) = get-path-in-cache path in
+(defun write (path buf offset file-descr)
+  let (path-in-cache, trashed) = get-path-in-cache path in)
 
   let write-to-resource =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -1761,7 +1690,7 @@ let write path buf offset file-descr =
   do-request write-to-resource |> fst
 (* END write *)
 
-let start-uploading-if-dirty path =
+(defun start-uploading-if-dirty (path)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let resource = lookup-resource path-in-cache trashed in
   match resource with
@@ -1773,9 +1702,9 @@ let start-uploading-if-dirty path =
           update-cached-resource-state cache
             Cache.Resource.State.Uploading r.Cache.Resource.id;
           true
-        end else false
+        end else false)
 
-let upload resource =
+(defun upload (resource)
   let context = Context.get-ctx () in
   let cache = context.Context.cache in
   update-cached-resource-state cache
@@ -1824,17 +1753,17 @@ let upload resource =
     update-resource-from-file ?state resource file in
   update-cached-resource cache updated-resource;
   shrink-cache ();
-  SessionM.return ()
+  SessionM.return ())
 
-let upload-with-retry path =
+(defun upload-with-retry (path)
   let try-upload resource =
     try-with-default (upload resource)
   in
   let (path-in-cache, trashed) = get-path-in-cache path in
   get-resource path-in-cache trashed >>= fun resource ->
-  with-retry try-upload resource
+  with-retry try-upload resource)
 
-let upload-if-dirty path =
+(defun upload-if-dirty (path)
   let context = Context.get-ctx () in
   let start-async-upload () =
     ThreadPool.add-work
@@ -1848,24 +1777,21 @@ let upload-if-dirty path =
     end else begin
       do-request (upload-with-retry path) |> ignore
     end
-  end
+  end)
 
-(* flush *)
-let flush path file-descr =
-  upload-if-dirty path
+(defun flush (path file-descr)
+  upload-if-dirty path)
 
-(* fsync *)
-let fsync path ds file-descr =
-  upload-if-dirty path
+(defun fsync (path ds file-descr)
+  upload-if-dirty path)
 
-(* release *)
-let release path flags hnd =
-  upload-if-dirty path
+(defun release (path flags hnd)
+  upload-if-dirty path)
 
-(* Create resources *)
-let create-remote-resource ?link-target is-folder path mode =
-  let (path-in-cache, trashed) = get-path-in-cache path in
-  if trashed then raise Permission-denied;
+(defun create-remote-resource (link-target is-folder path mode)
+  (multiple-value-bind (path-in-cache trashed) (get-path-in-cache path)
+    (when trashed
+      (raise Permission-denied))))
 
   let context = Context.get-ctx () in
   let config = context |. Context.config-lens in
@@ -1926,21 +1852,16 @@ let create-remote-resource ?link-target is-folder path mode =
   if is-filesystem-read-only () then
     raise Permission-denied
   else
-    do-request create-file |> ignore
-(* END Create resources *)
+    do-request create-file |> ignore)
 
-(* mknod *)
-let mknod path mode =
-  create-remote-resource false path mode
-(* END mknod *)
+(defun mknod (path mode)
+  create-remote-resource false path mode)
 
-(* mkdir *)
-let mkdir path mode =
-  create-remote-resource true path mode
-(* END mkdir *)
 
-(* Check if a folder is empty or not *)
-let check-if-empty remote-id is-folder trashed =
+(defun mkdir (path mode)
+  create-remote-resource true path mode)
+
+(defun check-if-empty (remote-id is-folder trashed)
   if is-folder then begin
     let q = Printf.sprintf "'%s' in parents and trashed = %b"
         remote-id trashed in
@@ -1961,11 +1882,10 @@ let check-if-empty remote-id is-folder trashed =
       raise Directory-not-empty
     end
   end else
-    SessionM.return ()
+    SessionM.return ())
 
-(* Delete (trash) resources *)
-let trash-resource is-folder trashed path =
-  if trashed then raise Permission-denied;
+(defun trash-resource (is-folder trashed path)
+  if trashed then raise Permission-denied;)
 
   let context = Context.get-ctx () in
   let config = context |. Context.config-lens in
@@ -2008,11 +1928,10 @@ let trash-resource is-folder trashed path =
         end)
     path
     trash
-    trash
+    trash)
 
-(* Permanently delete resources *)
-let delete-resource is-folder path =
-  let (path-in-cache, trashed) = get-path-in-cache path in
+(defun delete-resource (is-folder path)
+  let (path-in-cache, trashed) = get-path-in-cache path in)
 
   let delete resource =
     let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -2046,8 +1965,8 @@ let delete-resource is-folder path =
     delete
     delete
 
-let delete-remote-resource is-folder path =
-  let (-, trashed) = get-path-in-cache path in
+(defun delete-remote-resource (is-folder path)
+  let (-, trashed) = get-path-in-cache path in)
 
   let context = Context.get-ctx () in
   let config = context |. Context.config-lens in
@@ -2059,23 +1978,19 @@ let delete-remote-resource is-folder path =
       trash-resource is-folder trashed path
   in
   do-request trash-or-delete-file |> ignore
-(* END Delete (trash) resources *)
 
-(* unlink *)
-let unlink path =
-  delete-remote-resource false path
-(* END unlink *)
+(defun unlink (path)
+  delete-remote-resource false path)
 
-(* rmdir *)
-let rmdir path =
-  delete-remote-resource true path
-(* END rmdir *)
 
-(* rename *)
-let rename path new-path =
+(defun rmdir (path)
+  delete-remote-resource true path)
+
+
+(defun rename (path new-path)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let (new-path-in-cache, target-trashed) = get-path-in-cache new-path in
-  if trashed <> target-trashed then raise Permission-denied;
+  if trashed <> target-trashed then raise Permission-denied;)
 
   let config = Context.get-ctx () |. Context.config-lens in
   if is-lost-and-found-root path trashed config ||
@@ -2084,7 +1999,6 @@ let rename path new-path =
   if is-shared-with-me path trashed config ||
      is-shared-with-me new-path target-trashed config then
     raise Permission-denied;
-
   let old-parent-path = Filename.dirname path-in-cache in
   let new-parent-path = Filename.dirname new-path-in-cache in
   let old-name = Filename.basename path-in-cache in
@@ -2225,10 +2139,10 @@ let rename path new-path =
           end)
   in
   do-request update |> ignore
-(* END rename *)
 
-(* truncate *)
-let truncate path size =
+
+
+(defun truncate (path size)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let truncate-resource =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -2249,10 +2163,9 @@ let truncate path size =
     SessionM.return ()
   in
   do-request truncate-resource |> ignore
-(* END truncate *)
+(* END truncate *))
 
-(* chmod *)
-let chmod path mode =
+(defun chmod (path mode)
   let update =
     let chmod resource =
       let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -2274,10 +2187,8 @@ let chmod path mode =
       chmod
   in
   do-request update |> ignore
-(* END chmod *)
 
-(* chown *)
-let chown path uid gid =
+(defun chown (path uid gid)
   let update =
     let chown resource =
       let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -2301,11 +2212,10 @@ let chown path uid gid =
       chown
       chown
   in
-  do-request update |> ignore
-(* END chown *)
+  do-request update |> ignore)
 
-(* getxattr *)
-let get-xattr path name =
+
+(defun get-xattr (path name)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let fetch-xattr =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -2317,11 +2227,11 @@ let get-xattr path name =
     in
     SessionM.return value
   in
-  do-request fetch-xattr |> fst
-(* END getxattr *)
+  do-request fetch-xattr |> fst)
 
-(* setxattr *)
-let set-xattr path name value xflags =
+
+
+(defun set-xattr (path name value xflags)
   let update =
     let setxattr resource =
       let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -2353,11 +2263,10 @@ let set-xattr path name value xflags =
       setxattr
       setxattr
   in
-  do-request update |> ignore
-(* END setxattr *)
+  do-request update |> ignore)
 
-(* listxattr *)
-let list-xattr path =
+
+(defun list-xattr (path)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let fetch-xattrs =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -2365,11 +2274,11 @@ let list-xattr path =
     let keys = List.map (fun (n, -) -> n) xattrs in
     SessionM.return keys
   in
-  do-request fetch-xattrs |> fst
-(* END listxattr *)
+  do-request fetch-xattrs |> fst)
 
-(* removexattr *)
-let remove-xattr path name =
+
+
+(defun remove-xattr (path name)
   let update =
     let removexattr resource =
       let remote-id = resource |. Cache.Resource.remote-id |> Option.get in
@@ -2395,11 +2304,10 @@ let remove-xattr path name =
       removexattr
       removexattr
   in
-  do-request update |> ignore
-(* END removexattr *)
+  do-request update |> ignore)
 
-(* readlink *)
-let read-link path =
+
+(defun read-link (path)
   let (path-in-cache, trashed) = get-path-in-cache path in
   let fetch-link-target =
     get-resource path-in-cache trashed >>= fun resource ->
@@ -2410,11 +2318,48 @@ let read-link path =
     in
     SessionM.return link-target
   in
-  do-request fetch-link-target |> fst
-(* END readlink *)
+  do-request fetch-link-target |> fst)
 
-(* symlink *)
-let symlink target linkpath =
-  create-remote-resource ~link-target:target false linkpath 0o120777
-(* END symlink *)
 
+(defun symlink (target linkpath)
+  (create-remote-resource target false linkpath 0o120777))
+
+;; (defun handle-default-exceptions )
+;;   function
+;;   | GapiService.ServiceError (-, e) ->
+;;     let message =
+;;       e
+;;       |> GapiError.RequestError.to-data-model
+;;       |> GapiJson.data-model-to-json
+;;       |> Yojson.Safe.to-string in
+;;     Utils.log-with-header "Service error: %s.\n%!" message;
+;;     begin match e.GapiError.RequestError.errors with
+;;       | [] -> Utils.raise-m IO-error
+;;       | e :: - ->
+;;         begin match e.GapiError.SingleError.reason with
+;;           | "userRateLimitExceeded"
+;;           | "rateLimitExceeded"
+;;           | "backendError"
+;;           | "downloadQuotaExceeded" -> Utils.raise-m Temporary-error
+;;           | "insufficientFilePermissions" -> Utils.raise-m Permission-denied
+;;           | - -> Utils.raise-m IO-error
+;;         end
+;;     end
+;;     | GapiRequest.PermissionDenied - ->
+;;       Utils.log-with-header "Server error: Permission denied.\n%!";
+;;       Utils.raise-m Permission-denied
+;;     | GapiRequest.RequestTimeout - ->
+;;       Utils.log-with-header "Server error: Request Timeout.\n%!";
+;;       Utils.raise-m Temporary-error
+;;     | GapiRequest.PreconditionFailed -
+;;     | GapiRequest.Conflict - ->
+;;       Utils.log-with-header "Server error: Conflict.\n%!";
+;;       Utils.raise-m Temporary-error
+;;     | GapiRequest.Forbidden - ->
+;;       Utils.log-with-header "Server error: Forbidden.\n%!";
+;;       Utils.raise-m IO-error
+;;     | e -> Utils.raise-m e)
+
+
+;; (defun try-with-default (f s)
+;;   Utils.try-with-m f handle-default-exceptions s)

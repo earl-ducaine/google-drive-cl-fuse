@@ -6,12 +6,15 @@
 
 (in-package :os)
 
-(defparameter python-string (get-python-string "this is a string"))
+(defparameter *python-string* (python-inter-op::get-python-string "this is a string"))
 
 ;; getcwd
 (defun run-os-cwd ()
-  (call-function-from-module "os" "getcwd" nil))
+  (python-inter-op::call-function-from-module "os" "getcwd" nil))
 
 ;; chdir
 (defun run-os-chdir ()
-  (call-function-from-module "os" "chdir" '("/home/rett/dev/google-drive-fuse-drivers")))
+  (python-inter-op::call-function-from-module
+   "os"
+   "chdir"
+   '("/home/rett/dev/google-drive-fuse-drivers")))

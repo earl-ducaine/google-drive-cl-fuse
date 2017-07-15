@@ -6,13 +6,12 @@
 ;;;
 ;;; extensions or variations are noted.
 
-(defpackage :os
-  (:use :common-lisp :uiop))
 
-(in-package :os)
+(in-package :python-inter-op)
 
-(defparameter *system-source-directory*
-  "~/dev/google-drive-fuse-drivers/google-drive-clfuse")
+(defparameter *library-path*
+  (merge-pathnames (asdf:system-source-directory :google-drive-cl-fuse)
+		   "libapp_main.so"))
 
 (defun get-name ()
   (alexandria:switch ((string-downcase (software-type)) :test #'equal)
@@ -31,8 +30,7 @@
   (cffi:use-foreign-library libpython))
 
 (defun prep-foreign-library-libapp-main ()
-  (let ((library-path
-	 (concatenate 'string *system-source-directory* "/" "libapp_main.so")))
+  (let ((library-path *library-path*))
     (eval `(cffi:define-foreign-library libapp-main
 	     (:unix (:or ,library-path))))
     (cffi:use-foreign-library libapp-main)))
