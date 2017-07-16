@@ -25,3 +25,7 @@ const char* pyunicode_as_data(PyObject* o) {
 int pystring_check(PyObject* o) {
   return PyString_Check(o);
 }
+
+int pybool_check(PyObject* o) {
+  return  PyBool_Check(o);
+}

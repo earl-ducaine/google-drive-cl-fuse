@@ -54,10 +54,17 @@
 (cffi:defcfun ("PyImport_Import" py-import) :pointer (module :pointer))
 (cffi:defcfun ("pyunicode_as_data" pyunicode-as-data) :pointer (pystring :pointer))
 
+
+
+
 ;; PyString
 (cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer (pystring :pointer))
 (cffi:defcfun ("PyString_FromString" py-string-from-string) :pointer (cstring :pointer))
 (cffi:defcfun ("pystring_check" py-string-check) :int (py-object :pointer))
+(cffi:defcfun ("pybool_check" py-bool-check) :int (py-object :pointer))
+
+;; PyInt
+(cffi:defcfun ("PyInt_AsLong" py-int-as-long) :long (py-object :pointer))
 
 ;; PyTuple
 (cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
@@ -132,7 +139,7 @@
 (defun convert-lisp-object-to-python-object (object)
   (ctypecase object
     (string (cffi:with-foreign-string (foreign-string object)
-	      (py-string-from-string foreign-string)))	      
+	      (py-string-from-string foreign-string)))
     (symbol  nil)))
 
 ;; Generate a python args object from a list of values
@@ -145,7 +152,9 @@
   (cond
     ((/= (py-string-check python-object) 0)
      (get-py-string python-object))
-    (t nil)))
+    ((/= (py-bool-check python-object) 0)
+     (get-py-bool python-object))
+    (t (error t "Received unexpected Python type"))))
 
 (defun generate-lisp-list-from-python-tuple (tuple)
   (let (lisp-list)
@@ -159,12 +168,14 @@
     (let* ((py-module-string (py-string-from-string foreign-module-name))
 	   (m (py-import py-module-string))
 	   (f (py-object-get-attrstring m foreign-function-name)))
-      (cffi:foreign-string-to-lisp
-       (py-string-as-string
-	(py-object-call-object f (generate-python-args args)))))))
+      (convert-python-object-to-lisp-object
+	(py-object-call-object f (generate-python-args args))))))
 
 (defun get-py-string (py-string)
   (cffi:foreign-string-to-lisp (py-string-as-string py-string)))
+
+(defun get-py-bool (py-bool)
+  (and t (py-int-as-long py-bool)))
 
 (defun decrease-reference-counter (python-object)
   Py_DECREF(pName);
@@ -174,3 +185,18 @@
 (defun get-python-string (lisp-string)
   (cffi:with-foreign-string (foo lisp-string)
     (py-string-from-string foo)))
+
+(defun symbol-to-python-name (symbol)
+  (values
+   (string-downcase (package-name (symbol-package symbol)))
+   (string-downcase (symbol-name symbol))))
+
+(defun create-python-function (function-name)
+  (multiple-value-bind (py-module-name py-function-name)
+      (symbol-to-python-name function-name)
+  (setf (symbol-function function-name)
+        (lambda (&rest args)
+	  (call-function-from-module
+	   py-module-name
+	   py-function-name
+	   args)))))

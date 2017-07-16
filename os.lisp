@@ -10,11 +10,10 @@
 
 ;; getcwd
 (defun run-os-cwd ()
-  (python-inter-op::call-function-from-module "os" "getcwd" nil))
+  (python-inter-op::call-function-from-module 'getcwd nil))
 
 ;; chdir
 (defun run-os-chdir ()
   (python-inter-op::call-function-from-module
-   "os"
-   "chdir"
+   'chdir
    '("/home/rett/dev/google-drive-fuse-drivers")))

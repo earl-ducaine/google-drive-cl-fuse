@@ -10,5 +10,6 @@ void app_main(void);
 void py_decref(PyObject *o);
 const char* pyunicode_as_data(PyObject *o);
 int pystring_check(PyObject* o);
+int pybool_check(PyObject* o);
 
 #endif /* APP_MAIN_H */

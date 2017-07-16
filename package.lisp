@@ -4,7 +4,7 @@
 (defpackage :os
   (:use :common-lisp :uiop))
 
-(defpackage :os-path
+(defpackage :os.path
   (:use :common-lisp))
 
 (defpackage :quick-start

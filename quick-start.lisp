@@ -2,11 +2,11 @@
 (in-package :quick-start)
 
 (defun get-credentials ()
-  (let* ((home-dir (os-path:expanduser "~"))
-	 (credential-dir (os-path:join home-dir ".credentials")))
-    (unless (os-path:exists credential-dir)
+  (let* ((home-dir (os.path::expanduser "~"))
+	 (credential-dir (os-path::join home-dir ".credentials")))
+    (unless (os-path::exists credential-dir)
       (os-makedirs credential-dir))
-    (let* ((credential-path (os-path:join credential-dir
+    (let* ((credential-path (os-path::join credential-dir
 					  "drive-python-quickstart.json"))
 	   (store  (storage credential-path))
 	   (credentials  (get store)))

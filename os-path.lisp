@@ -1,5 +1,5 @@
 
-(in-package :os-path)
+(in-package :os.path)
 
 ;; getcwd
 ;; (defun expanduser (file)
@@ -13,19 +13,14 @@
 
 ;; (symbol-function 'twice)
 
-(defun create-python-function (module function-name)
-  (setf (symbol-function function-name) 
-        (lambda (&rest args)
-	  (python-inter-op::call-function-from-module
-	   module
-	   function-name	   
-	   args))))
-
-(create-python-function "os.path" 'expanduser)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (python-inter-op::create-python-function 'exists)
+  (python-inter-op::create-python-function 'expanduser)
+  (python-inter-op::create-python-function 'join))
 
 
 (defun create-curried (name op arg1)
-  (setf (symbol-function name) 
+  (setf (symbol-function name)
         (lambda (&rest args) (apply op (cons arg1 args)))))
 
 (defmacro defun-curried (newname oldname arg)
@@ -33,12 +28,8 @@
       `(create-curried ',newname (function ,oldname) ,arg)
       (error "Newname and Oldname need to be symbols")))
 
-  
-(defun join (file)
-  (python-inter-op::call-function-from-module
-   "os.path"
-   "expanduser"
-   (list file)))
 
-
-
+;; (defun join (file)
+;;   (python-inter-op::call-function-from-module
+;;    'expanduser
+;;    (list file)))

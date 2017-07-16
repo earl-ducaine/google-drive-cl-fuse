@@ -18,5 +18,5 @@ export LDFLAGS="-L. -Wl,-R -Wl,. $LDFLAGS"
 export CFLAGS="-DGC_LINUX_THREADS -D_REENTRANT -fPIC  -g -pipe -Wall $CFLAGS"
 
 gcc $CFLAGS -c app_main.c
-gcc -shared -Wl,-soname,libapp_main.so $LDFLAGS -lecl -o libapp_main.so *o $libs
+gcc -shared -Wl,-soname,libapp_main.so $LDFLAGS -o libapp_main.so *o $libs
 #gcc main.c $CFLAGS $LDFLAGS -lapp_main -lecl -o app
