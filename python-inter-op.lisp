@@ -144,9 +144,11 @@
 
 ;; Generate a python args object from a list of values
 (defun generate-python-args (args)
-  (let ((result (py-tuple-new (length args))))
+  (let ((result (py-tuple-new (length args)))
+	(index 0))
     (dolist (arg args result)
-      (py-tuple-set-item result 0 (convert-lisp-object-to-python-object arg)))))
+      (py-tuple-set-item result index (convert-lisp-object-to-python-object arg))
+      (1+ index))))
 
 (defun convert-python-object-to-lisp-object (python-object)
   (cond
