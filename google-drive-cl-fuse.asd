@@ -5,10 +5,14 @@
   :depends-on (:alexandria :cffi)
   :components
   ((:file "package")
-   (:file "python-inter-op")
-   (:file "os")
-   (:file "os-path")
    (:file "oauth2client-file")
-   (:file "quick-start")
-;;   (:file "gdfuses")
-   ))
+   (:module standard-library
+   	    :depends-on (:package)
+   	    :components
+	    ((:file "python-inter-op")
+	     (:file "os")
+	     (:file "os-path")))
+   (:module test
+   	    :depends-on (:standard-library)
+   	    :components
+	    ((:file "test")))))

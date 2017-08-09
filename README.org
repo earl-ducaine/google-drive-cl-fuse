@@ -1,0 +1,6 @@
+
+
+
+* To get running first get account secret:
+  https://console.developers.google.com/apis/credentials
+  download as json

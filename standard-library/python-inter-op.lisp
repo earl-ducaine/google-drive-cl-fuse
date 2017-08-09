@@ -231,7 +231,7 @@
 	(py-tuple-set-item py-tuple i (convert-lisp-object-to-python-object
 				       (nth i args))))
 
-      (setf f (py-object-get-attrstring m foreign-function-name))
+      (setf f (py-object-get-attrstring module-name foreign-function-name))
       (convert-python-object-to-lisp-object
        (py-object-call-object
 	f
@@ -249,7 +249,7 @@
 	      ;; consideration class keywords.
 	      (py-instance-new class args nil))))))
 
-     
+
 (defun create-python-function (function-name)
   (multiple-value-bind (py-module-name py-function-name)
       (symbol-to-python-name function-name)
