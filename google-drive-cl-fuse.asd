@@ -8,6 +8,7 @@
    (:file "python-inter-op")
    (:file "os")
    (:file "os-path")
+   (:file "oauth2client-file")
    (:file "quick-start")
 ;;   (:file "gdfuses")
    ))

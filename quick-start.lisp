@@ -1,14 +1,26 @@
 
 (in-package :quick-start)
 
+
+(defparameter *store* nil)
+(defparameter *credential-path*
+  "/home/rett/.google-drive-cl-fuse-credentials/drive-python-quickstart.json")
+
+
+
 (defun get-credentials ()
   (let* ((home-dir (os.path::expanduser "~"))
-	 (credential-dir (os.path::join home-dir ".credentials")))
+	 (credential-dir (os.path::join home-dir ".google-drive-cl-fuse-credentials")))
     (unless (os.path::exists credential-dir)
-      (os-makedirs credential-dir))
+      (os::makedirs credential-dir))
     (let* ((credential-path (os.path::join credential-dir
-					  "drive-python-quickstart.json"))
-	   (store  (storage credential-path))
+					   "drive-python-quickstart.json")))
+      credential-path)))
+      (setf store  (oauth2client.file::storage *credential-path*)))))
+
+
+
+	   
 	   (credentials  (get store)))
       (when (or (not credentials) (invalid credentials))
 	(let* ((flow  (flow-from-clientsecrets client client-secret-file scopes)))

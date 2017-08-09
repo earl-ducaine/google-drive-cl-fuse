@@ -55,12 +55,22 @@
 (cffi:defcfun ("pyunicode_as_data" pyunicode-as-data) :pointer (pystring :pointer))
 
 
+;; PyNone (pseudo type)
+(cffi:defcfun ("pynone_check" py-none-check) :int (py-object :pointer))
+
+;; PyInstance
+(cffi:defcfun ("PyInstance_New" py-instance-new) :pointer
+  (class :pointer)
+  (args :pointer)
+  (key-words :pointer))
+
 
 
 ;; PyString
 (cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer (pystring :pointer))
 (cffi:defcfun ("PyString_FromString" py-string-from-string) :pointer (cstring :pointer))
 (cffi:defcfun ("pystring_check" py-string-check) :int (py-object :pointer))
+
 (cffi:defcfun ("pybool_check" py-bool-check) :int (py-object :pointer))
 
 ;; PyInt
@@ -68,7 +78,7 @@
 
 ;; PyTuple
 (cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
-  (callable-object :int))
+  (callable-object :long))
 
 (cffi:defcfun ("PyTuple_GetItem" py-tuple-get-item) :pointer
   (tuple-object :pointer)
@@ -76,7 +86,7 @@
 
 (cffi:defcfun ("PyTuple_SetItem" py-tuple-set-item) :int
   (tuple-object :pointer)
-  (index :int)
+  (index :long)
   (object :pointer))
 
 (cffi:defcfun ("PyTuple_Size" py-tuple-size) :int
@@ -156,6 +166,8 @@
      (get-py-string python-object))
     ((/= (py-bool-check python-object) 0)
      (get-py-bool python-object))
+    ((/= (py-none-check python-object) 0)
+     nil)
     (t (error t "Received unexpected Python type"))))
 
 (defun generate-lisp-list-from-python-tuple (tuple)
@@ -168,16 +180,22 @@
   (cffi:with-foreign-strings ((foreign-module-name module-name)
 			      (foreign-function-name function-name))
     (let* ((py-module-string (py-string-from-string foreign-module-name))
-	   (m (py-import py-module-string))
-	   (f (py-object-get-attrstring m foreign-function-name)))
+	   (py-tuple (py-tuple-new (length args))))
+      (dotimes (i (length args) py-tuple)
+	(py-tuple-set-item py-tuple i (convert-lisp-object-to-python-object
+				       (nth i args))))
+      (setf m (py-import py-module-string))
+      (setf f (py-object-get-attrstring m foreign-function-name))
       (convert-python-object-to-lisp-object
-	(py-object-call-object f (generate-python-args args))))))
+       (py-object-call-object
+	f
+	py-tuple)))))
 
 (defun get-py-string (py-string)
   (cffi:foreign-string-to-lisp (py-string-as-string py-string)))
 
 (defun get-py-bool (py-bool)
-  (and t (py-int-as-long py-bool)))
+  (if (= (py-int-as-long py-bool) 0) nil t))
 
 (defun decrease-reference-counter (python-object)
   Py_DECREF(pName);
@@ -193,6 +211,45 @@
    (string-downcase (package-name (symbol-package symbol)))
    (string-downcase (symbol-name symbol))))
 
+(defun create-python-callable (callable-name)
+  (etypecase function-name
+    ('symbol
+     (create-python-function callable-name))
+    ('list
+     (destructuring-bind (&key type name)
+	 callable-name
+       (ecase type
+	 ('class (create-python-class-instantiator name))
+	 ('function (create-python-function name)))))))
+
+(defun call-function-from-module (module-name function-name args)
+  (cffi:with-foreign-strings ((foreign-module-name module-name)
+			      (foreign-function-name function-name))
+    (let* ((py-module-string (py-string-from-string foreign-module-name))
+	   (py-tuple (py-tuple-new (length args))))
+      (dotimes (i (length args) py-tuple)
+	(py-tuple-set-item py-tuple i (convert-lisp-object-to-python-object
+				       (nth i args))))
+
+      (setf f (py-object-get-attrstring m foreign-function-name))
+      (convert-python-object-to-lisp-object
+       (py-object-call-object
+	f
+	py-tuple)))))
+
+
+(defun create-python-class-instantiator (class-name)
+  (multiple-value-bind (py-module-name py-function-name)
+      (symbol-to-python-name function-name)
+    (let* ((m (py-import py-module-string))
+	   (class (py-object-get-attrstring m foreign-function-name)))
+      (setf (symbol-function function-name)
+	    (lambda (&rest args)
+	      ;; to do, we also, at some point have to take into
+	      ;; consideration class keywords.
+	      (py-instance-new class args nil))))))
+
+     
 (defun create-python-function (function-name)
   (multiple-value-bind (py-module-name py-function-name)
       (symbol-to-python-name function-name)

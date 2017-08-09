@@ -6,14 +6,18 @@
 
 (in-package :os)
 
-(defparameter *python-string* (python-inter-op::get-python-string "this is a string"))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (python-inter-op::create-python-function 'makedirs)
+  (python-inter-op::create-python-function 'getcwd)
+  (python-inter-op::create-python-function 'chdir))
+
 
 ;; getcwd
-(defun run-os-cwd ()
-  (python-inter-op::call-function-from-module 'getcwd nil))
+;; (defun run-os-cwd ()
+;;   (python-inter-op::call-function-from-module 'getcwd nil))
 
 ;; chdir
-(defun run-os-chdir ()
-  (python-inter-op::call-function-from-module
-   'chdir
-   '("/home/rett/dev/google-drive-fuse-drivers")))
+;; (defun run-os-chdir ()
+;;   (python-inter-op::call-function-from-module
+;;    'chdir
+;;    '("/home/rett/dev/google-drive-fuse-drivers")))

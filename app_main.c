@@ -29,3 +29,10 @@ int pystring_check(PyObject* o) {
 int pybool_check(PyObject* o) {
   return  PyBool_Check(o);
 }
+
+// Convenient wrapper for the Python singleton 'None'
+int pynone_check(PyObject* o) {
+  return o == Py_None;
+}
+
+
