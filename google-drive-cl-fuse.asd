@@ -9,5 +9,6 @@
    (:file "os")
    (:file "os-path")
    (:file "quick-start")
+   (:file "test")
 ;;   (:file "gdfuses")
    ))

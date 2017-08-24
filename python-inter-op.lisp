@@ -66,6 +66,15 @@
 ;; PyInt
 (cffi:defcfun ("PyInt_AsLong" py-int-as-long) :long (py-object :pointer))
 
+
+
+;; PyList
+(cffi:defcfun ("PyList_New" py-list-new) :pointer
+  (size :int))
+
+(cffi:defcfun ("PyList_Append" py-list-append) :pointer
+  (item :pointer))
+
 ;; PyTuple
 (cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
   (callable-object :int))
@@ -140,15 +149,17 @@
   (ctypecase object
     (string (cffi:with-foreign-string (foreign-string object)
 	      (py-string-from-string foreign-string)))
+    (list (generate-python-args-from-lisp-list object))
     (symbol  nil)))
 
 ;; Generate a python args object from a list of values
-(defun generate-python-args (args)
+(defun generate-python-args-from-lisp-list (args)
   (let ((result (py-tuple-new (length args)))
 	(index 0))
-    (dolist (arg args result)
+    (dolist (arg  args)
       (py-tuple-set-item result index (convert-lisp-object-to-python-object arg))
-      (1+ index))))
+      (incf index))
+    result))
 
 (defun convert-python-object-to-lisp-object (python-object)
   (cond
@@ -171,7 +182,28 @@
 	   (m (py-import py-module-string))
 	   (f (py-object-get-attrstring m foreign-function-name)))
       (convert-python-object-to-lisp-object
-	(py-object-call-object f (generate-python-args args))))))
+	(py-object-call-object f (generate-python-args-from-lisp-list args))))))
+
+
+;; these all leak!
+(defparameter str1 (cffi:foreign-alloc :char :count 1024))
+(defparameter str2 (cffi:foreign-alloc :char :count 1024))
+(defparameter module-name "os.path")
+(defparameter function-name "join")
+(defparameter foreign-module-name (cffi:lisp-string-to-foreign
+				   module-name
+				   str1
+				   (1+ (length module-name))))
+(defparameter foreign-function-name (cffi:lisp-string-to-foreign
+				     function-name
+				     str2
+				     (1+ (length function-name))))
+(defparameter py-module-string (py-string-from-string foreign-module-name))
+(defparameter m (py-import py-module-string))
+(defparameter f (py-object-get-attrstring m foreign-function-name))
+;;(defparameter py-args (generate-python-args (list "/home/rett" "dev")))
+;; (py-object-call-object f py-args)
+
 
 (defun get-py-string (py-string)
   (cffi:foreign-string-to-lisp (py-string-as-string py-string)))

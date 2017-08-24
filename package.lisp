@@ -9,3 +9,6 @@
 
 (defpackage :quick-start
   (:use :common-lisp))
+
+(defpackage :test
+  (:use :common-lisp :uiop))

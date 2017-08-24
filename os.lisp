@@ -8,12 +8,6 @@
 
 (defparameter *python-string* (python-inter-op::get-python-string "this is a string"))
 
-;; getcwd
-(defun run-os-cwd ()
-  (python-inter-op::call-function-from-module 'getcwd nil))
-
-;; chdir
-(defun run-os-chdir ()
-  (python-inter-op::call-function-from-module
-   'chdir
-   '("/home/rett/dev/google-drive-fuse-drivers")))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (python-inter-op::create-python-function 'chdir)
+  (python-inter-op::create-python-function 'getcwd))
