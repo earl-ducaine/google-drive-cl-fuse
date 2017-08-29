@@ -25,7 +25,8 @@
 (defun prep-foreign-library-libpython ()
   (cffi:define-foreign-library libpython
     (:darwin (:or "libpython2.7.1.dylib" "libpython2.7.dylib"))
-    (:unix (:or "libpython2.7.so.1" "libpython2.7.so"))
+    ;;    (:unix (:or "libpython2.7.so.1" "libpython2.7.so"))
+    (:unix (:or "libpython3.6dm.so.1" "libpython3.6dm.so"))
     (t (:default "libpython2.7")))
   (cffi:use-foreign-library libpython))
 
@@ -54,26 +55,57 @@
 (cffi:defcfun ("PyImport_Import" py-import) :pointer (module :pointer))
 (cffi:defcfun ("pyunicode_as_data" pyunicode-as-data) :pointer (pystring :pointer))
 
+;; PyObject
+;; (python-inter-op::call-function-from-module
+;;  "types"
+;;  "type"
+;;  (py-tuple-get-item
+;;   (generate-python-args-from-lisp-list
+;;    '(("/home/rett"))) 0))
 
+;; PyString (all-lowercase are wrapper functions) obsolete
+;; (cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer (pystring :pointer))
+;; (cffi:defcfun ("PyString_FromString" py-string-from-string) :pointer (cstring :pointer))
+;; (cffi:defcfun ("pystring_check" py-string-check) :int (py-object :pointer))
 
+;; PyUnicode (all-lowercase are wrapper functions)
+(cffi:defcfun ("PyUnicode_AsUTF8AndSize" py-unicode-as-utf8-and-size)
+    :pointer
+  (pystring :pointer)
+  (string-size-in-bytes :pointer))
 
-;; PyString
-(cffi:defcfun ("PyString_AsString" py-string-as-string) :pointer (pystring :pointer))
-(cffi:defcfun ("PyString_FromString" py-string-from-string) :pointer (cstring :pointer))
-(cffi:defcfun ("pystring_check" py-string-check) :int (py-object :pointer))
+(cffi:defcfun ("PyUnicode_DecodeUTF8" py-unicode-decode-utf-8) :pointer
+  (cstring :pointer)
+  (string-size-in-bytes :int)
+  (errors :pointer))
+
+(cffi:defcfun ("pyunicode_check" py-string-check) :int (py-object :pointer))
+
+;; PyLong
+(cffi:defcfun ("pylong_check" py-long-check) :int (py-object :pointer))
+
+;; PyBool
 (cffi:defcfun ("pybool_check" py-bool-check) :int (py-object :pointer))
+
+;; PyCallable
+(cffi:defcfun ("pycallable_check" py-callable-check) :int (py-object :pointer))
 
 ;; PyInt
 (cffi:defcfun ("PyInt_AsLong" py-int-as-long) :long (py-object :pointer))
-
-
 
 ;; PyList
 (cffi:defcfun ("PyList_New" py-list-new) :pointer
   (size :int))
 
 (cffi:defcfun ("PyList_Append" py-list-append) :pointer
+  (list :pointer)
   (item :pointer))
+
+(cffi:defcfun ("PyList_Size" py-list-size) :int
+  (list :pointer))
+
+(cffi:defcfun ("pylist_check" py-list-check) :int
+  (object :pointer))
 
 ;; PyTuple
 (cffi:defcfun ("PyTuple_New" py-tuple-new) :pointer
@@ -91,11 +123,13 @@
 (cffi:defcfun ("PyTuple_Size" py-tuple-size) :int
   (tuple :pointer))
 
+(cffi:defcfun ("pytuple_check" py-tuple-check) :int
+  (object :pointer))
+
 ;;; PyObject* PyObject_GetAttrString (PyObject *o, char *attr_name)
 (cffi:defcfun ("PyObject_GetAttrString" py-object-get-attrstring) :pointer
   (o :pointer)
   (attr-name :pointer))
-
 
 (cffi:defcfun ("Py_DECREF" py_decref) :void (object py-object))
 ;; pModule = PyImport_Import(pName);
@@ -104,8 +138,6 @@
 (cffi:defcfun ("PyObject_CallObject" py-object-call-object) :pointer
   (callable-object :pointer)
   (args :pointer))
-
-
 
 (py-initialize)
 (defvar module)
@@ -121,12 +153,6 @@
 (defparameter buff2 (cffi:foreign-alloc :char :count 1024))
 (defparameter *string-buff*
   (cffi:lisp-string-to-foreign "os" buff1 1024))
-(defparameter import-module-string (py-string-from-string *string-buff*))
-
-(defun import-os ()
-  ;;(let ((module (py-string-from-string import-module-string)))
-  (setf module (py-import import-module-string))
-  (py-decref module))
 
 (defparameter *args* nil)
 (defparameter *foreign-module-name* nil)
@@ -136,6 +162,70 @@
 (defparameter *f* nil)
 (defparameter *py-foreign-function-name* nil)
 
+;; errors
+;; "surrogateescape"
+;; "strict"
+
+;; Python strings are in reality Unicode objects
+
+  ;;(babel:STRING-TO-OCTETS lisp-string)
+  ;;  (let ((array (coerce #(84 117 114 97 110 103 97)
+
+(defun list-to-array (sequence)
+  (map 'vector #'identity sequence))
+
+(defun array-to-list (sequence)
+  (map 'list #'identity sequence))
+
+(defun py-utf-8-from-string (lisp-string)
+  (let* ((lisp-vector (babel:string-to-octets lisp-string))
+	 (foreign-mem (cffi:foreign-alloc :char :initial-contents lisp-vector))
+	 (errors  (cffi:foreign-string-alloc "surrogateescape"))
+	 )
+    (values (py-unicode-decode-utf-8 foreign-mem (length lisp-vector) errors)
+	   (length lisp-vector))))
+
+(defun string-from-py-utf-8 (py-utf-8)
+  (let* ((length (cffi:foreign-alloc :int))
+	 (foreign-array (py-unicode-as-utf8-and-size
+			 py-utf-8
+			 length)))
+    (babel:octets-to-string 
+     (iter (for i  from 0 below (cffi:mem-aref length :int 0))
+	   (collect
+	       (cffi:mem-aref foreign-array :char i)
+	     :result-type '(vector
+			    (unsigned-byte
+			     8)))))))
+
+(defun py-string-as-string (py-string)
+  (string-from-py-utf-8 py-string))
+
+(defun test-string-functions ()
+  (let ((compare-string "aoeu"))
+    (string= (string-from-py-utf-8 (py-utf-8-from-string compare-string))
+	     compare-string)))
+
+;; Depreciated
+(defun py-string-from-string (lisp-string)
+  (py-utf-8-from-string lisp-string))
+
+(defparameter import-module-string (py-string-from-string "os"))
+
+(defun import-os ()
+  ;;(let ((module (py-string-from-string import-module-string)))
+  (setf module (py-import import-module-string))
+  (py-decref module))
+
+;; (defun string-from-py-utf-8 (py-utf-8)
+;;   py-utf-8
+;;   ;; (multi-value-bind () (py-unicode-as-utf8-and-size py-utf-8)
+;;   ;; 		    (let ((array (coerce #(84 117 114 97 110 103 97)
+;;   ;; 					 (vector (unsigned-byte 8)))))
+;;   ;; 		       (py-unicode-decode-utf-8 (foreign-string array))
+;;   ;; 		      array
+;;   ;; 		      ))
+;;   )
 
 (defun convert-strings ()
   (cffi:foreign-string-to-lisp
@@ -143,14 +233,22 @@
 		       (cffi:lisp-string-to-foreign "os" buff1 1024)))))
 
 ;;(cffi:foreign-string-to-lisp )
-
 ;; "/home/rett/dev/google-drive-fuse-drivers"
+
+(defun convert-lisp-list-to-python-list (lisp-list)
+  ;; convert and push each Lisp item onto the Python list.
+  (let ((python-list (py-list-new 0)))
+    (dolist (lisp-item lisp-list)
+      (py-list-append python-list
+		      (convert-lisp-object-to-python-object lisp-item)))
+    python-list))
+
 (defun convert-lisp-object-to-python-object (object)
   (ctypecase object
     (string (cffi:with-foreign-string (foreign-string object)
 	      (py-string-from-string foreign-string)))
-    (list (generate-python-args-from-lisp-list object))
-    (symbol  nil)))
+    (list (convert-lisp-list-to-python-list object))
+    (symbol nil)))
 
 ;; Generate a python args object from a list of values
 (defun generate-python-args-from-lisp-list (args)
@@ -167,6 +265,8 @@
      (get-py-string python-object))
     ((/= (py-bool-check python-object) 0)
      (get-py-bool python-object))
+    ((/= (py-long-check python-object) 0)
+     (get-py-long python-object))
     (t (error t "Received unexpected Python type"))))
 
 (defun generate-lisp-list-from-python-tuple (tuple)
@@ -175,14 +275,47 @@
       (push (convert-python-object-to-lisp-object
 	     (py-tuple-get-item tuple i)) lisp-list))))
 
-(defun call-function-from-module (module-name function-name args)
-  (cffi:with-foreign-strings ((foreign-module-name module-name)
-			      (foreign-function-name function-name))
+(defun get-specs () )
+  
+(ql:quickload :drakma)
+(ql:quickload :lquery)
+(defparameter response  (drakma:http-request "https://docs.python.org/2/library/os.path.html"))
+;; (lquery:$ (initialize response))
+;; (lquery:$ "dl.function" (serialize)))
+
+;;; Examples
+;;; args:
+;;;    '()
+;;;    
+
+
+;;; https://docs.python.org/2/library/os.path.html
+
+(defun validate-type (args type-args)
+  (dolist (type-arg type-args)
+    (dolist (arg args)
+      (unless (typep arg type-arg)
+	(error "Wrong number of arguments or wrong argument type")))))
+
+(defun call-function-from-module (module-name function-name args &optional type-args)
+  (declare (ignore type-args))
+  (let ((foreign-module-name (py-utf-8-from-string module-name))
+	(foreign-function-name (py-utf-8-from-string function-name)))
     (let* ((py-module-string (py-string-from-string foreign-module-name))
 	   (m (py-import py-module-string))
 	   (f (py-object-get-attrstring m foreign-function-name)))
+      (when (= (py-callable-check f) 0)
+      	(error
+      	 "Unable to find callable python type: module (~s) function-name (~s)"
+      	 module-name function-name))
       (convert-python-object-to-lisp-object
-	(py-object-call-object f (generate-python-args-from-lisp-list args))))))
+       (let ((result
+	      (py-object-call-object f (generate-python-args-from-lisp-list
+					args))))
+	 (when (= (cffi:pointer-address result) 0)
+	   (error "Problems executing the following function: module (~s) function-name (~s)"
+		  module-name function-name))
+	 result)))))
 
 
 ;; these all leak!
@@ -198,9 +331,9 @@
 				     function-name
 				     str2
 				     (1+ (length function-name))))
-(defparameter py-module-string (py-string-from-string foreign-module-name))
-(defparameter m (py-import py-module-string))
-(defparameter f (py-object-get-attrstring m foreign-function-name))
+;; (defparameter py-module-string (py-string-from-string foreign-module-name))
+;; (defparameter m (py-import py-module-string))
+;;(defparameter f (py-object-get-attrstring m foreign-function-name))
 ;;(defparameter py-args (generate-python-args (list "/home/rett" "dev")))
 ;; (py-object-call-object f py-args)
 
@@ -208,11 +341,15 @@
 (defun get-py-string (py-string)
   (cffi:foreign-string-to-lisp (py-string-as-string py-string)))
 
+(defun get-py-long (py-long)
+  (py-int-as-long py-long))
+
 (defun get-py-bool (py-bool)
   (and t (py-int-as-long py-bool)))
 
 (defun decrease-reference-counter (python-object)
-  Py_DECREF(pName);
+  (declare (ignore python-object))
+  ;; Py_DECREF(pName);
   )
 
 

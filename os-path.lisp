@@ -17,17 +17,18 @@
   (python-inter-op::create-python-function 'abspath)
   (python-inter-op::create-python-function 'basename)
 
-  ;; takes lisp object
-  (python-inter-op::create-python-function 'commonpath)
-  
+  ;; takes list object -- 3.6
+  ;; (python-inter-op::create-python-function 'commonpath)  
   (python-inter-op::create-python-function 'commonprefix)
   (python-inter-op::create-python-function 'dirname)
   (python-inter-op::create-python-function 'exists)
   (python-inter-op::create-python-function 'lexists)
   (python-inter-op::create-python-function 'expanduser)
   (python-inter-op::create-python-function 'expandvars)
+  (python-inter-op::create-python-function 'getatime)
 
-  (python-inter-op::create-python-function 'join))
+  (python-inter-op::create-python-function 'join)
+  (python-inter-op::create-python-function 'joinn))
 
 (defun create-curried (name op arg1)
   (setf (symbol-function name)
@@ -43,3 +44,4 @@
 ;;    "os.path"
 ;;    "join"
 ;;    (list file1 file2)))
+ 
