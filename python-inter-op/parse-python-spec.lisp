@@ -1,3 +1,7 @@
+(ql:quickload :esrap)
+(use-package :esrap)
+(use-package :alexandria)
+;;; need at least one commit
 
 (defrule whitespace
     (+ (or #\Space #\Tab #\Newline))
