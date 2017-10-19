@@ -115,17 +115,17 @@
     `(,arg-symbol ,@arg-type-def)))
   
 
-(defun generate-defcfun-list ()
+(defun generate-defcfun-py-unicode-decode-utf-8 ()
   (multiple-value-bind (match parts)
-      (scan-to-strings
+      (cl-ppcre:scan-to-strings
        "([^(]*)\\((.*)\\)"
        "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
     (declare (ignore match))
-    (let* ((function-and-return (split "\\s" (elt parts 0)))
+    (let* ((function-and-return (cl-ppcre:split "\\s" (elt parts 0)))
 	   (args (mapcar
 		  (lambda (arg)
-		    (split "\\s" (string-trim '(#\Space) arg)))
-		  (split "\\,"  (elt parts 1))))
+		    (cl-ppcre:split "\\s" (string-trim '(#\Space) arg)))
+		  (cl-ppcre:split "\\,"  (elt parts 1))))
 	   (return-spec (mapcar #'map-string-c-type-to-cffi-type
 				(remove 'const (butlast function-and-return))))
 	   (function 
@@ -134,13 +134,110 @@
 		      ,(intern (string-upcase
 				(symbol-munger:camel-case->lisp-name function))))
 	   ,@return-spec))))
-  
+
+(defmacro str (&rest args)
+  `(apply #'concatenate (list 'string ,@args)))
+
+(defun get-cffi-type (pointer c-type)
+  (unless (or (string= pointer "*")
+	      (not pointer))
+    (error (str "pointer must be a string made up of "
+		"the asterisk character: #\* or nil")))
+  (cond
+    ((string= "*" pointer) :pointer)
+    ((string= "int" c-type) :int)
+    ((string= "void" c-type) :void)))
+
+;; Return spec should be a list of pairs, the first element of being
+;; the c pointer operator, *, or nil:
+;;
+;; For example:
+;; const *int
+;; would be represented as:
+;; '((nil "const") ("*" "int"))
+;;
+;; Currently we only type of the following form:
+;; <const> <*><int|char|long>
+;; the goal should be to generalize this in the future.
+(defun validate-and-cffi-ify-return-spec (return-spec)
+  (cond
+    ((and (= (length return-spec) 1)
+	  (= (length (car return-spec)) 2))
+     (get-cffi-type (nth 0 (car return-spec))
+		    (nth 1 (car return-spec))))
+    ((and (= (length return-spec) 2)
+	  (string= (nth 1 (nth 0 return-spec))
+		   "const")
+	  (null (nth 0 (nth 0 return-spec)))
+	  (= (length (nth 1 return-spec)) 2))
+     (get-cffi-type (nth 0 (nth 1 return-spec))
+		    (nth 1 (nth 1 return-spec))))
+    (t
+     (error "return-spec is mal-formed: ~s~%" return-spec))))
 
 
-	   
-      
+;; arg-spec should be a list of 2 or 3 items.
+;;
+;; if 3 items the first item should be the pair (nil "const") and
+;; items 2 and 3 should be like items 1 and 2 of the two item list.
+;;
+;; if 2 items the first one should but of the form (nil <char|int|void|long>)
+;; and the second should be of the form (<*> <SOME IDENTIFIER>)
+;;
+;; For example:
+;; const char *encoding
+;; would be represented as:
+;; '((nil "const") (nil "char") ("*" encoding))
+;; the function would return the list
+;; '(encoding :pointer)
+(defun validate-and-cffi-ify-function-arg-spec (function-arg-spec)
+  (cond
+    ((and (= (length return-spec) 2)
+	  (= (length (nth 0 function-arg-spec)) 2)
+	  (= (length (nth 1 function-arg-spec)) 2)
+	  (nil (nth 0 (nth 0 function-arg-spec))))
+     (get-cffi-type (nth 0 (nth 1 function-arg-spec))
+		    (nth 1 (nth 0 function-arg-spec))))
+    ((and (= (length return-spec) 3)
+	  (= (length (nth 0 function-arg-spec)) 2)
+	  (= (length (nth 1 function-arg-spec)) 2)
+	  (= (length (nth 2 function-arg-spec)) 2)
+	  (string= (nth 1 (nth 0 return-spec))
+		   "const")
+	  (null (nth 0 (nth 0 return-spec)))
 
-  
+
+
+	  
+	  (= (length (nth 1 return-spec)) 2))
+     (get-cffi-type (nth 0 (nth 1 return-spec))
+		    (nth 1 (nth 1 return-spec))))
+    (t
+     (error "return-spec is mal-formed: ~s~%" return-spec))))
+
+(defun run-validate-and-cffi-ify-return-spec ()
+  (validate-and-cffi-ify-return-spec  '((NIL "const") ("*" "int"))))
+
+(defun run-validate-and-cffi-ify-arg-spec ()
+  (validate-and-cffi-ify-return-spec  '((NIL "const") ("*" "int"))))
+
+
+(destructuring-bind (&key return-spec function-name args)
+     (parse
+      'function-signature
+      " const *int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
+  (list (validate-and-cffi-ify-return-spec return-spec)
+	function-name
+	args))
+
+
+
+;; (cffi:defcfun ("PyUnicode_DecodeUTF8" py-unicode-decode-utf-8) :pointer
+;;   (cstring :pointer)
+;;   (string-size-in-bytes :int)
+;;   (errors :pointer))
+
+
 
 (cl-ppcre:split "\\s" "stitch \t in time saves nine.")
 

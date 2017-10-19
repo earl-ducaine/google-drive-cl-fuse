@@ -1,5 +1,5 @@
 (defpackage :python-inter-op
-  (:use :common-lisp :uiop :iterate))
+  (:use :common-lisp :uiop :iterate :esrap))
 
 (defpackage :os
   (:use :common-lisp :uiop  :iterate))

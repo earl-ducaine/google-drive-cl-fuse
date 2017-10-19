@@ -1,7 +1,5 @@
-(ql:quickload :esrap)
-(use-package :esrap)
-(use-package :alexandria)
-;;; need at least one commit
+
+(in-package :python-inter-op)
 
 (defrule whitespace
     (+ (or #\Space #\Tab #\Newline))
@@ -16,7 +14,7 @@
 	 (* (non-first-identifier-character character)))
   (:text t))
 
-	 (? (or #\* #\&))
+;;	 (? (or #\* #\&))
 
 ;; no need to provide initial white space.  That's the job of whoever
 ;; calls us, we are, however responsible for ending white space.
@@ -40,8 +38,6 @@
 	       (list (nth 1 match)
 		     (nth 3 match)))))
 
-
-;; (parse 'function-signature " const *int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
 (defrule function-signature
     (and (? whitespace)
 	 (+ identifier/ws)
@@ -56,4 +52,7 @@
 		       :function-name function-name
 		       :args (nth 3 match))))))
 
-;; "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)"
+(defun test-rule ()
+  (parse
+   'function-signature
+   " const *int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)"))
