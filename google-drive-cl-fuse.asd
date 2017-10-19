@@ -2,17 +2,15 @@
 ;;; MIT license.
 
 (asdf:defsystem :google-drive-cl-fuse
-  :depends-on (:alexandria :cffi)
+  :depends-on (:alexandria :cffi :drakma :lquery :iterate)
   :components
   ((:file "package")
-   (:file "oauth2client-file")
-   (:module standard-library
-   	    :depends-on (:package)
-   	    :components
-	    ((:file "python-inter-op")
-	     (:file "os")
-	     (:file "os-path")))
-   (:module test
-   	    :depends-on (:standard-library)
-   	    :components
-	    ((:file "test")))))
+   (:file "python-inter-op/interface")
+   (:file "python-inter-op/init-finalization-threads")
+   
+   ;; (:file "os")
+   ;; (:file "os-path")
+   ;; (:file "quick-start")
+   ;; (:file "test")
+;;   (:file "gdfuses")
+   ))

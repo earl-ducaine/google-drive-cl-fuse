@@ -1,8 +1,8 @@
 # -*- mode: bash;  -*-
 
 
-CFLAGS="$CFLAGS $(/usr/bin/python2.7-config --cflags)"
-LDFLAGS="$LDFLAGS $(/usr/bin/python2.7-config  --ldflags)"
+CFLAGS="$CFLAGS $(/usr/bin/python3-config  --cflags)"
+LDFLAGS="$LDFLAGS $(/usr/bin/python3-config   --ldflags)"
 
 rm -f *.o *.so \
 #   app
