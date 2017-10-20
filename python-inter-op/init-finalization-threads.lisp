@@ -8,10 +8,7 @@
 ;;;
 ;;; Transcription rules
 
-
 (in-package :python-inter-op)
-
-
 
 (cffi:defcfun ("Py_Initialize" py-initialize) :void)
 
@@ -115,25 +112,6 @@
     `(,arg-symbol ,@arg-type-def)))
   
 
-(defun generate-defcfun-py-unicode-decode-utf-8 ()
-  (multiple-value-bind (match parts)
-      (cl-ppcre:scan-to-strings
-       "([^(]*)\\((.*)\\)"
-       "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
-    (declare (ignore match))
-    (let* ((function-and-return (cl-ppcre:split "\\s" (elt parts 0)))
-	   (args (mapcar
-		  (lambda (arg)
-		    (cl-ppcre:split "\\s" (string-trim '(#\Space) arg)))
-		  (cl-ppcre:split "\\,"  (elt parts 1))))
-	   (return-spec (mapcar #'map-string-c-type-to-cffi-type
-				(remove 'const (butlast function-and-return))))
-	   (function 
-		      (car (last function-and-return))))
-      `(cffi:defcfun (,function
-		      ,(intern (string-upcase
-				(symbol-munger:camel-case->lisp-name function))))
-	   ,@return-spec))))
 
 (defmacro str (&rest args)
   `(apply #'concatenate (list 'string ,@args)))
@@ -231,30 +209,52 @@
 	args))
 
 
+(defun generate-defcfun-py-unicode-decode-utf-8 ()
+  ;; (multiple-value-bind (match parts)
+  ;;     (cl-ppcre:scan-to-strings
+  ;;      "([^(]*)\\((.*)\\)"
+  ;;      "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
+  (destructuring-bind (&key return-spec function-name args)
+      (parse
+       'function-signature
+       " const *int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)")
+    (list (validate-and-cffi-ify-return-spec return-spec)
+	  function-name
+	  args))
+  (let* ((function-and-return (cl-ppcre:split "\\s" (elt parts 0)))
+	 (args (mapcar
+		(lambda (arg)
+		  (cl-ppcre:split "\\s" (string-trim '(#\Space) arg)))
+		(cl-ppcre:split "\\,"  (elt parts 1))))
+	 (return-spec (mapcar #'map-string-c-type-to-cffi-type
+			      (remove 'const (butlast function-and-return))))
+	 (function 
+	  (car (last function-and-return))))
+    `(cffi:defcfun (,function
+		    ,(intern (string-upcase
+			      (symbol-munger:camel-case->lisp-name function))))
+	 ,@return-spec)))
+
+
 
 ;; (cffi:defcfun ("PyUnicode_DecodeUTF8" py-unicode-decode-utf-8) :pointer
 ;;   (cstring :pointer)
 ;;   (string-size-in-bytes :int)
 ;;   (errors :pointer))
 
-
-
 (cl-ppcre:split "\\s" "stitch \t in time saves nine.")
 
 
 
-(scan-to-strings (str c-types) "const int "))
-		      "\((\\w+\\s*,\\s*\\w+)*\)" "int Py_FinalizeEx()")
-
-
-
+(cl-ppcre:scan-to-strings 
+ "\((\\w+\\s*,\\s*\\w+)*\)" "int Py_FinalizeEx()")
 
 (let* ((parsed
 	(cl-ppcre:split
 	 "[()]" 
-	 "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)"))
-       (args (butlast parsed))
-       (function 
+	 "int Py_SetStandardStreamEncoding(const char *encoding, const char *errors)"))))
+;;       (args (butlast parsed))
+;;       (function 
 
 
  (split-sequence:SPLIT-SEQUENCE #\Space "A stitch in time saves nine.")
