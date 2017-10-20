@@ -67,7 +67,7 @@
 	       (or (string= (first c-type-snippet) "*")
 		   (null (first c-type-snippet))))
     (error "All type segments must lists with two elements: ~s~%"
-	   c-type-snippet))  
+	   c-type-snippet))
   (values (string= (first c-type-snippet) "*")
 	  (intern (string-upcase (second c-type-snippet)) "KEYWORD")))
 
@@ -122,20 +122,13 @@
       (make-instance
        'c-function-type
        (get-type-from-snippet adjusted-snippet))
-
-
-
-      
 	   (type-segments (butlast argument-snippet))
 	   (last-type-segment (first (last type-segments)))
 	   (butlast type-segments)
 	   (type (get-type-from-snippet )
-      
-
-    
     (setf (slot-value argument 'identifier)
-	  
-  
+
+
 
 
 (defun get-function-declaration-from-snippet (declaration-snippet)
@@ -154,8 +147,8 @@
     (setf (slot-value 'arguments)
 	  (mapcar #'get-argument-from-snippet
 	   (third declaration-snippet)))
-    
-    
+
+
 
 
 (destructuring-bind (&key return-spec function-name args)
@@ -206,7 +199,7 @@
 	 (? whitespace))
   (:function (lambda (match)
 	       (list (nth 1 match)))))
-		     ;;(nth 3 match)))))
+
 
 (defrule function-signature
     (and (? whitespace)
@@ -219,7 +212,7 @@
 	       (let* ((return-spec (butlast (nth 1 match)))
 		      (function-name (second (car (last (nth 1 match)))))
 		      (args (nth 3 match)))
-		 
+
 		 (list :return-spec return-spec
 		       :function-name function-name
 		       :args args)))))
