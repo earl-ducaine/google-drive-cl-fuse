@@ -16,8 +16,6 @@
    lisp-name
    arguments))
 
-
-
 ;; Return spec should be a list of pairs, the first element of being
 ;; the c pointer operator, *, or nil:
 ;;
@@ -58,7 +56,7 @@
      (error "in-const-snippet is malformed: ~s~%" is-const-snippet))))
 
 (defun translate-string-to-c-type (string)
-  (keyword (intern "NEWKW" "KEYWORD")
+  (keyword (intern "NEWKW" "KEYWORD")))
 
 (defun get-c-type (c-type-snippet)
   (unless (and (= (length c-type-snippet) 2)
@@ -122,21 +120,11 @@
       (make-instance
        'c-function-type
        (get-type-from-snippet adjusted-snippet))
-
-
-
-      
 	   (type-segments (butlast argument-snippet))
 	   (last-type-segment (first (last type-segments)))
 	   (butlast type-segments)
 	   (type (get-type-from-snippet )
-      
-
-    
-    (setf (slot-value argument 'identifier)
-	  
-  
-
+    (setf (slot-value argument 'identifier))))))
 
 (defun get-function-declaration-from-snippet (declaration-snippet)
   (unless (= (length declaration-snippet) 3)
@@ -153,7 +141,7 @@
 		  "KEYWORD"))
     (setf (slot-value 'arguments)
 	  (mapcar #'get-argument-from-snippet
-	   (third declaration-snippet)))
+	   (third declaration-snippet)))))
     
     
 
