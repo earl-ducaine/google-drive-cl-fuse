@@ -65,7 +65,7 @@
 	       (or (string= (first c-type-snippet) "*")
 		   (null (first c-type-snippet))))
     (error "All type segments must lists with two elements: ~s~%"
-	   c-type-snippet))  
+	   c-type-snippet))
   (values (string= (first c-type-snippet) "*")
 	  (intern (string-upcase (second c-type-snippet)) "KEYWORD")))
 
@@ -142,9 +142,6 @@
     (setf (slot-value 'arguments)
 	  (mapcar #'get-argument-from-snippet
 	   (third declaration-snippet)))))
-    
-    
-
 
 (destructuring-bind (&key return-spec function-name args)
      (parse
@@ -163,17 +160,66 @@
     (+ (or #\Space #\Tab #\Newline))
   (:constant nil))
 
+(defrule ws
+    whitespace)
+
+(defun keywordify (string)
+  (intern (string-upcase string) "KEYWORD"))
+
 (defun non-first-identifier-character (character)
   (or (alphanumericp character)
       (char= character #\_)))
+
+(defrule type-qualifier
+    (or "const" "restrict" "volatile" "_Atomic")
+  (:function (lambda (match)
+	       (intern (string-upcase match) "KEYWORD"))))
+
+(defrule type-specifier
+    (or "void" "char" "short" "int" "long" "float" "double" "signed" "unsigned"
+	"_Bool" "_Complex" "atomic-type-specifier" "struct-or-union-specifier"
+	"enum-specifier" "typedef-name")
+  (:function (lambda (match)
+	       (intern (string-upcase match) "KEYWORD"))))
+
+(defrule pointer
+    "*"
+  (:function (lambda (match)
+	       (intern (string-upcase match) "KEYWORD"))))
 
 (defrule identifier
     (and (alpha-char-p character)
 	 (* (non-first-identifier-character character)))
   (:text t))
 
-;;	 (? (or #\* #\&))
+(defrule declaration-specifiers
+    (or (and type-specifier (? (and ws declaration-specifiers)))
+	(and type-qualifier (? (and ws declaration-specifiers))))
+  (:function (lambda (match)
+	       (if (second match)
+		   (list (first match)
+			 (car (cadadr match)))
+		   (list (first match))))))
 
+(defrule direct-declarator
+    (or identifier
+	(and direct-declarator #\( parameter-type-list #\))))
+
+(defrule declarator
+    (and (? "*") (? ws) direct-declarator)
+  (:function (lambda (match)
+	       (if (first match)
+		   (list (keywordify (first match)) (third match))
+		   (list (third match))))))
+
+
+(defrule declaration
+
+    
+
+
+;;	 (? (or #\* #\&))
+;;
 ;; no need to provide initial white space.  That's the job of whoever
 ;; calls us, we are, however responsible for ending white space.
 ;; pehaps we should have a rule that all sub-expressions only match
@@ -194,7 +240,7 @@
 	 (? whitespace))
   (:function (lambda (match)
 	       (list (nth 1 match)))))
-		     ;;(nth 3 match)))))
+
 
 (defrule function-signature
     (and (? whitespace)
@@ -207,7 +253,7 @@
 	       (let* ((return-spec (butlast (nth 1 match)))
 		      (function-name (second (car (last (nth 1 match)))))
 		      (args (nth 3 match)))
-		 
+
 		 (list :return-spec return-spec
 		       :function-name function-name
 		       :args args)))))
