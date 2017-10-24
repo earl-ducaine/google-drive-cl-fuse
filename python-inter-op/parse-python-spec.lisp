@@ -214,9 +214,9 @@
 
 
 (defrule declaration
-
-    
-
+    (or (and declaration-specifiers (? init-declarator-list))
+	;; static_assert-declaration
+	))
 
 ;;	 (? (or #\* #\&))
 ;;
